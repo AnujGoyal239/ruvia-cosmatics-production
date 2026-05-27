@@ -333,42 +333,60 @@ export default function ProductDetailPage() {
           
           {/* Left Column: Image Gallery */}
           <div className="lg:col-span-7 flex flex-col md:flex-row gap-6">
-            <div className="order-2 md:order-1 flex md:flex-col gap-4">
-              {[0, 1, 2, 3].map((i) => (
-                <button 
-                  key={i} 
-                  onClick={() => setSelectedImage(i)}
-                  className={`w-20 h-20 md:w-24 md:h-24 rounded-3xl overflow-hidden border-2 transition-all duration-500 bg-white ${selectedImage === i ? 'border-brand-pink shadow-lg' : 'border-transparent hover:border-brand-pink/30'}`}
-                >
-                  <ProductImage
-                    src={product.image}
-                    alt="thumb"
-                    className={`w-full h-full object-cover mix-blend-multiply ${selectedImage === i ? 'scale-110 opacity-100' : 'opacity-40'}`}
-                    iconSize={22}
-                  />
-                </button>
-              ))}
-            </div>
+            {(() => {
+              // Source the gallery from the product. Falls back to a
+              // single-entry array using the primary image when older docs
+              // don't have the `images` field populated.
+              const gallery =
+                Array.isArray(product.images) && product.images.length > 0
+                  ? product.images
+                  : product.image
+                  ? [product.image]
+                  : [];
+              const safeIndex = Math.min(selectedImage || 0, Math.max(0, gallery.length - 1));
+              const heroSrc = gallery[safeIndex] || product.image;
 
-            <div className="order-1 md:order-2 flex-1 aspect-4/5 rounded-[3.5rem] overflow-hidden bg-white border border-brand-dark/3 shadow-2xl shadow-brand-dark/3 relative group">
-              <ProductImage
-                src={product.image}
-                alt={product.name}
-                className="w-full h-full object-cover transition-transform duration-3000 group-hover:scale-105 mix-blend-multiply"
-                iconSize={56}
-              />
-              <div className="absolute top-8 left-8">
-                <span className="bg-brand-dark text-white px-5 py-2 rounded-xl text-[9px] font-black uppercase tracking-[0.3em] shadow-2xl">
-                  {product.category}
-                </span>
-              </div>
-              <button 
-                onClick={() => toggleWishlist(product)}
-                className="absolute top-8 right-8 w-14 h-14 rounded-full bg-white/90 backdrop-blur-xl flex items-center justify-center text-brand-dark hover:bg-brand-pink hover:text-white transition-all shadow-xl z-10"
-              >
-                <Heart size={20} className={isInWishlist(product.id) ? "fill-brand-pink text-brand-pink" : ""} />
-              </button>
-            </div>
+              return (
+                <>
+                  <div className="order-2 md:order-1 flex md:flex-col gap-4">
+                    {gallery.map((src, i) => (
+                      <button
+                        key={`${src}-${i}`}
+                        onClick={() => setSelectedImage(i)}
+                        className={`w-20 h-20 md:w-24 md:h-24 rounded-3xl overflow-hidden border-2 transition-all duration-500 bg-white ${safeIndex === i ? 'border-brand-pink shadow-lg' : 'border-transparent hover:border-brand-pink/30'}`}
+                      >
+                        <ProductImage
+                          src={src}
+                          alt={`${product.name} thumbnail ${i + 1}`}
+                          className={`w-full h-full object-cover mix-blend-multiply ${safeIndex === i ? 'scale-110 opacity-100' : 'opacity-40'}`}
+                          iconSize={22}
+                        />
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="order-1 md:order-2 flex-1 aspect-4/5 rounded-[3.5rem] overflow-hidden bg-white border border-brand-dark/3 shadow-2xl shadow-brand-dark/3 relative group">
+                    <ProductImage
+                      src={heroSrc}
+                      alt={product.name}
+                      className="w-full h-full object-cover transition-transform duration-3000 group-hover:scale-105 mix-blend-multiply"
+                      iconSize={56}
+                    />
+                    <div className="absolute top-8 left-8">
+                      <span className="bg-brand-dark text-white px-5 py-2 rounded-xl text-[9px] font-black uppercase tracking-[0.3em] shadow-2xl">
+                        {product.category}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => toggleWishlist(product)}
+                      className="absolute top-8 right-8 w-14 h-14 rounded-full bg-white/90 backdrop-blur-xl flex items-center justify-center text-brand-dark hover:bg-brand-pink hover:text-white transition-all shadow-xl z-10"
+                    >
+                      <Heart size={20} className={isInWishlist(product.id) ? "fill-brand-pink text-brand-pink" : ""} />
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
 
           <div className="lg:col-span-5 flex flex-col">

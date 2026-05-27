@@ -153,8 +153,37 @@ const validateUploadArray = (fieldName, maxCount) => {
   };
 };
 
+/**
+ * Build an Express middleware that handles upload(s) on multiple named
+ * fields (e.g. `image` for legacy single-file callers and `images` for the
+ * gallery). Each entry in `fields` is `{ name, maxCount }` matching multer's
+ * `.fields()` API. Every parsed file is run through the validator.
+ */
+const validateUploadFields = (fields) => {
+  const parser = upload.fields(fields);
+  return (req, res, next) => {
+    parser(req, res, (err) => {
+      if (err) {
+        return sendUploadError(res, err);
+      }
+      const buckets = req.files || {};
+      for (const fieldName of Object.keys(buckets)) {
+        const list = Array.isArray(buckets[fieldName]) ? buckets[fieldName] : [];
+        for (const file of list) {
+          const failure = runValidator(file);
+          if (failure) {
+            return res.status(failure.status).json(failure.body);
+          }
+        }
+      }
+      return next();
+    });
+  };
+};
+
 module.exports = upload;
 module.exports.upload = upload;
 module.exports.validateUpload = validateUpload;
 module.exports.validateUploadArray = validateUploadArray;
+module.exports.validateUploadFields = validateUploadFields;
 module.exports.sendUploadError = sendUploadError;

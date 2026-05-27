@@ -9,7 +9,7 @@ const options = {
       description: 'API documentation for Ruvia Cosmetics e-commerce platform',
       contact: {
         name: 'Ruvia Support',
-        email: 'support@ruvia.com',
+        email: 'info@ruviacosmetics.com',
       },
     },
     servers: [

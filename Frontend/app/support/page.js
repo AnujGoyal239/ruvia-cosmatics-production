@@ -2,9 +2,8 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { MessageCircle, Mail, Phone, Search, ChevronDown, ChevronUp, Clock, MapPin, ShieldCheck, ExternalLink } from "lucide-react";
+import { MessageCircle, Mail, Phone, Search, ChevronDown, ChevronUp, Clock, ShieldCheck, ExternalLink } from "lucide-react";
 import { Button } from "../../components/ui/Button";
-import Link from "next/link";
 import { apiUrl } from "../../constants";
 
 export default function SupportPage() {
@@ -114,7 +113,7 @@ export default function SupportPage() {
       title: "WhatsApp Us",
       desc: "Fastest way to get help",
       action: "Chat Now",
-      link: "https://wa.me/919876543210",
+      link: "https://wa.me/919610006695",
       color: "border-[#25D366]/20 hover:border-[#25D366] bg-[#25D366]/5"
     },
     {
@@ -122,7 +121,11 @@ export default function SupportPage() {
       title: "Email Support",
       desc: "Response within 24 hours",
       action: "Send Email",
-      link: "mailto:support@ruvia.com",
+      // Open Gmail's web compose pre-filled with the recipient. This avoids
+      // relying on the OS default mailto handler (Outlook/Mail app on
+      // Windows). For users not signed into Gmail, Google redirects them
+      // to login first, then back to compose.
+      link: "https://mail.google.com/mail/?view=cm&fs=1&to=info@ruviacosmetics.com&su=Ruvia%20Cosmetics%20Support",
       color: "border-brand-pink/20 hover:border-brand-pink bg-brand-pink/5"
     },
     {
@@ -130,7 +133,7 @@ export default function SupportPage() {
       title: "Call Hotline",
       desc: "Mon-Sat, 9am - 7pm",
       action: "Call Us",
-      link: "tel:+919876543210",
+      link: "tel:+919610006695",
       color: "border-brand-dark/20 hover:border-brand-dark bg-brand-dark/5"
     }
   ];
@@ -343,31 +346,6 @@ export default function SupportPage() {
             </div>
           </div>
           
-        </div>
-
-        {/* Office/Store Locations */}
-        <div className="mt-32 pt-20 border-t border-brand-dark/10">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-8 mb-12">
-            <div>
-              <h2 className="font-serif text-4xl md:text-5xl font-bold text-brand-dark mb-4">Live Store Data</h2>
-              <p className="text-brand-dark/50 text-sm font-medium">Connect this section to your backend-managed store or location source.</p>
-            </div>
-            <Link href="/support" className="text-[11px] font-black tracking-widest uppercase text-brand-dark border-b-2 border-brand-dark pb-1 hover:text-brand-pink hover:border-brand-pink transition-all">Contact Support</Link>
-          </div>
-          
-          <div className="bg-white p-8 rounded-3xl border border-brand-dark/5 shadow-sm">
-            <div className="flex items-start gap-4">
-              <div className="w-10 h-10 rounded-full bg-[#FDFBF7] flex items-center justify-center text-brand-dark shrink-0">
-                <MapPin size={18} />
-              </div>
-              <div>
-                <h4 className="font-serif text-xl font-bold text-brand-dark mb-2">Backend-managed locations only</h4>
-                <p className="text-xs text-brand-dark/50 font-medium leading-relaxed max-w-2xl">
-                  This panel is ready for a live location collection or admin-managed store feed.
-                </p>
-              </div>
-            </div>
-          </div>
         </div>
 
       </div>

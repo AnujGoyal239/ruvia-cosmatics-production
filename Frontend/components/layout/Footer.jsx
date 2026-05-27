@@ -37,8 +37,14 @@ export default function Footer() {
         <div>
           <h4 className="text-[10px] uppercase tracking-[0.5em] font-black text-brand-pink mb-8">Contact</h4>
           <ul className="flex flex-col gap-4 text-white/50 text-[10px] font-bold tracking-widest uppercase">
-            <li className="hover:text-white transition-colors cursor-pointer break-all">hello@ruviacosmetics.com</li>
-            <li className="hover:text-white transition-colors cursor-pointer">1-800-RUVIA-LAB</li>
+            <li className="hover:text-white transition-colors cursor-pointer break-all">
+              <a href="mailto:info@ruviacosmetics.com">info@ruviacosmetics.com</a>
+            </li>
+            <li className="hover:text-white transition-colors cursor-pointer">
+              <a href="https://wa.me/919610006695" target="_blank" rel="noopener noreferrer">
+                WhatsApp +91 96100 06695
+              </a>
+            </li>
             <li className="opacity-100">New York • Paris • London</li>
           </ul>
         </div>

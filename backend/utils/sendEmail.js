@@ -60,7 +60,7 @@ const sendEmail = async (options) => {
 
   // Define email options
   const fromName = process.env.EMAIL_FROM_NAME || 'Ruvia';
-  const fromEmail = process.env.EMAIL_FROM_EMAIL || 'noreply@ruvia.com';
+  const fromEmail = process.env.EMAIL_FROM_EMAIL || 'info@ruviacosmetics.com';
   const mailOptions = {
     from: `${fromName} <${fromEmail}>`,
     replyTo: process.env.EMAIL_REPLY_TO || undefined,

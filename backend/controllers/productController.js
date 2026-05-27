@@ -1,4 +1,5 @@
 const Product = require('../models/productModel');
+const { MAX_PRODUCT_IMAGES } = require('../models/productModel');
 const cloudinary = require('../config/cloudinary');
 const mongoose = require('mongoose');
 const auditLogger = require('../utils/auditLogger');
@@ -26,7 +27,11 @@ const AUDITABLE_PRODUCT_FIELDS = [
   'usage',
   'benefits',
   'image',
+  'images',
 ];
+
+const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB per file
 
 const snapshotProduct = (product) => {
   if (!product) return null;
@@ -38,18 +43,97 @@ const snapshotProduct = (product) => {
   return snapshot;
 };
 
-const slugify = (value = '') => value
-  .toLowerCase()
-  .trim()
-  .replace(/[^a-z0-9]+/g, '-')
-  .replace(/^-+|-+$/g, '');
+const slugify = (value = '') =>
+  value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+const isCloudinaryConfigured = () =>
+  !!(
+    process.env.CLOUDINARY_CLOUD_NAME &&
+    process.env.CLOUDINARY_API_KEY &&
+    process.env.CLOUDINARY_API_SECRET
+  );
+
+/**
+ * Stream a single multer-parsed file buffer to Cloudinary and return the
+ * resulting `secure_url`.
+ */
+const uploadBufferToCloudinary = async (file) => {
+  const b64 = Buffer.from(file.buffer).toString('base64');
+  const dataURI = `data:${file.mimetype};base64,${b64}`;
+
+  const response = await cloudinary.uploader.upload(dataURI, {
+    folder: 'ruvia_products',
+    resource_type: 'image',
+    quality: 'auto',
+    fetch_format: 'auto',
+  });
+
+  return response.secure_url;
+};
+
+/**
+ * Validate a single file (mime + size) and throw a tagged error on failure.
+ * The wrapping route handler converts the tag into a 400 response.
+ */
+const assertImageFileValid = (file) => {
+  if (!ALLOWED_MIMES.includes(file.mimetype)) {
+    const err = new Error('Only JPEG, PNG, and WebP images are allowed');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (file.size > MAX_IMAGE_SIZE) {
+    const err = new Error('Image size must be less than 5MB');
+    err.statusCode = 400;
+    throw err;
+  }
+};
+
+/**
+ * Collect every file the admin sent in this request, regardless of which
+ * field name they used. The upload middleware mounts the route with
+ * `multer.fields([{ name: 'image' }, { name: 'images' }])`, so files arrive
+ * in `req.files.image` or `req.files.images`. We treat the first file in
+ * `image` (legacy single-file uploads) as the new primary, then append the
+ * `images` array. Order is preserved.
+ */
+const collectUploadedFiles = (req) => {
+  const buckets = req.files || {};
+  const single = Array.isArray(buckets.image) ? buckets.image : [];
+  const multi = Array.isArray(buckets.images) ? buckets.images : [];
+  return [...single, ...multi];
+};
+
+/**
+ * Parse the `keepImages` field on update requests. Sent as a JSON-encoded
+ * array of Cloudinary URLs the admin wants to retain. Falls back to an
+ * empty array when missing or malformed so an absent field implies "drop
+ * everything and replace with newly uploaded files".
+ */
+const parseKeepImages = (raw) => {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.filter((s) => typeof s === 'string' && s.length > 0);
+  try {
+    const parsed = JSON.parse(String(raw));
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((s) => typeof s === 'string' && s.length > 0);
+  } catch (_e) {
+    return [];
+  }
+};
 
 // @desc    Fetch all products
 // @route   GET /api/products
 // @access  Public
 const getProducts = async (req, res) => {
   try {
-    const { skip, limit, page } = calculatePagination(req.query.page, req.query.limit);
+    const { skip, limit, page } = calculatePagination(
+      req.query.page,
+      req.query.limit
+    );
     const sort = req.query.sort || '-createdAt';
     const { category, search } = req.query;
 
@@ -88,7 +172,6 @@ const getProductById = async (req, res) => {
 
     if (mongoose.Types.ObjectId.isValid(req.params.id)) {
       const fallbackProduct = await Product.findById(req.params.id);
-
       if (fallbackProduct) {
         res.json(fallbackProduct);
         return;
@@ -107,53 +190,60 @@ const getProductById = async (req, res) => {
 // @access  Private/Admin
 const createProduct = async (req, res) => {
   try {
-    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-      return res.status(503).json({ message: 'Image upload is disabled (Cloudinary not configured)' });
+    if (!isCloudinaryConfigured()) {
+      return res
+        .status(503)
+        .json({ message: 'Image upload is disabled (Cloudinary not configured)' });
     }
 
-    // Validate file upload
-    if (!req.file) {
-      return res.status(400).json({ message: 'Image file is required' });
+    const incoming = collectUploadedFiles(req);
+
+    if (incoming.length === 0) {
+      return res.status(400).json({ message: 'At least one image is required' });
     }
-
-    // Validate file type
-    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!allowedMimes.includes(req.file.mimetype)) {
-      return res.status(400).json({ message: 'Only JPEG, PNG, and WebP images are allowed' });
-    }
-
-    // Validate file size (5MB max)
-    const maxSize = 5 * 1024 * 1024;
-    if (req.file.size > maxSize) {
-      return res.status(400).json({ message: 'Image size must be less than 5MB' });
-    }
-
-    let imageUrl = '';
-
-    try {
-      // Convert buffer to base64 for Cloudinary upload
-      const b64 = Buffer.from(req.file.buffer).toString("base64");
-      const dataURI = "data:" + req.file.mimetype + ";base64," + b64;
-
-      const uploadResponse = await cloudinary.uploader.upload(dataURI, {
-        folder: 'ruvia_products',
-        resource_type: 'auto',
-        quality: 'auto',
-        fetch_format: 'auto'
+    if (incoming.length > MAX_PRODUCT_IMAGES) {
+      return res.status(400).json({
+        message: `A product can have at most ${MAX_PRODUCT_IMAGES} images`,
       });
+    }
 
-      imageUrl = uploadResponse.secure_url;
-      console.log('✅ Image uploaded to Cloudinary:', imageUrl);
+    // Validate each uploaded file before any Cloudinary calls — bail early on
+    // bad mime/size so we don't burn a slot mid-upload.
+    for (const file of incoming) assertImageFileValid(file);
+
+    let uploadedUrls = [];
+    try {
+      uploadedUrls = await Promise.all(incoming.map((f) => uploadBufferToCloudinary(f)));
     } catch (cloudinaryError) {
       console.error('Cloudinary upload error:', cloudinaryError);
-      return res.status(500).json({ message: 'Failed to upload image to Cloudinary', error: cloudinaryError.message });
+      return res.status(500).json({
+        message: 'Failed to upload image(s) to Cloudinary',
+        error: cloudinaryError.message,
+      });
     }
 
-    const { name, price, category, description, countInStock, originalPrice, tag, id, rating, reviews, reviewsCount, concern, ingredients, usage, benefits } = req.body;
+    const {
+      name,
+      price,
+      category,
+      description,
+      countInStock,
+      originalPrice,
+      tag,
+      id,
+      rating,
+      reviews,
+      reviewsCount,
+      concern,
+      ingredients,
+      usage,
+      benefits,
+    } = req.body;
 
-    // Validate required fields
     if (!name || !price || !category) {
-      return res.status(400).json({ message: 'Name, price, and category are required' });
+      return res
+        .status(400)
+        .json({ message: 'Name, price, and category are required' });
     }
 
     const product = new Product({
@@ -161,7 +251,10 @@ const createProduct = async (req, res) => {
       name,
       price: parseFloat(price),
       category,
-      image: imageUrl,
+      // Primary image is the first uploaded URL. The pre-save hook will
+      // ensure `image` and `images[0]` agree.
+      image: uploadedUrls[0],
+      images: uploadedUrls,
       description,
       countInStock: parseInt(countInStock) || 0,
       originalPrice: originalPrice ? parseFloat(originalPrice) : parseFloat(price),
@@ -172,7 +265,7 @@ const createProduct = async (req, res) => {
       concern,
       ingredients: Array.isArray(ingredients) ? ingredients : [],
       usage,
-      benefits: Array.isArray(benefits) ? benefits : []
+      benefits: Array.isArray(benefits) ? benefits : [],
     });
 
     const createdProduct = await product.save();
@@ -187,10 +280,14 @@ const createProduct = async (req, res) => {
     });
 
     res.status(201).json(createdProduct);
-
   } catch (error) {
     console.error('Create product error:', error);
-    res.status(500).json({ message: 'Failed to create product', error: error.message });
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ message: error.message });
+    }
+    res
+      .status(500)
+      .json({ message: 'Failed to create product', error: error.message });
   }
 };
 
@@ -199,56 +296,98 @@ const createProduct = async (req, res) => {
 // @access  Private/Admin
 const updateProduct = async (req, res) => {
   try {
-    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-      return res.status(503).json({ message: 'Image upload is disabled (Cloudinary not configured)' });
+    if (!isCloudinaryConfigured()) {
+      return res
+        .status(503)
+        .json({ message: 'Image upload is disabled (Cloudinary not configured)' });
     }
 
     const product = await Product.findById(req.params.id);
-
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
 
     const beforeSnapshot = snapshotProduct(product);
 
-    let imageUrl = product.image;
+    // The admin tells us which existing URLs to retain via `keepImages`. New
+    // file uploads are appended after the retained ones. The final array is
+    // then capped at MAX_PRODUCT_IMAGES.
+    const keep = parseKeepImages(req.body.keepImages);
+    const incoming = collectUploadedFiles(req);
 
-    // Handle image update if provided
-    if (req.file) {
-      // Validate file type
-      const allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
-      if (!allowedMimes.includes(req.file.mimetype)) {
-        return res.status(400).json({ message: 'Only JPEG, PNG, and WebP images are allowed' });
-      }
+    for (const file of incoming) assertImageFileValid(file);
 
-      // Validate file size (5MB max)
-      const maxSize = 5 * 1024 * 1024;
-      if (req.file.size > maxSize) {
-        return res.status(400).json({ message: 'Image size must be less than 5MB' });
-      }
+    if (keep.length + incoming.length > MAX_PRODUCT_IMAGES) {
+      return res.status(400).json({
+        message: `A product can have at most ${MAX_PRODUCT_IMAGES} images`,
+      });
+    }
 
+    let uploadedUrls = [];
+    if (incoming.length > 0) {
       try {
-        const b64 = Buffer.from(req.file.buffer).toString("base64");
-        const dataURI = "data:" + req.file.mimetype + ";base64," + b64;
-
-        const uploadResponse = await cloudinary.uploader.upload(dataURI, {
-          folder: 'ruvia_products',
-          resource_type: 'auto',
-          quality: 'auto',
-          fetch_format: 'auto'
-        });
-
-        imageUrl = uploadResponse.secure_url;
-        console.log('✅ Image updated in Cloudinary:', imageUrl);
+        uploadedUrls = await Promise.all(
+          incoming.map((f) => uploadBufferToCloudinary(f))
+        );
       } catch (cloudinaryError) {
         console.error('Cloudinary upload error:', cloudinaryError);
-        return res.status(500).json({ message: 'Failed to upload image to Cloudinary', error: cloudinaryError.message });
+        return res.status(500).json({
+          message: 'Failed to upload image(s) to Cloudinary',
+          error: cloudinaryError.message,
+        });
       }
     }
 
-    const { name, price, category, description, countInStock, originalPrice, tag, id, rating, reviews, reviewsCount, concern, ingredients, usage, benefits } = req.body;
+    let nextImages;
+    if (req.body.keepImages !== undefined || incoming.length > 0) {
+      // Caller intentionally edited the gallery (via keepImages or new
+      // uploads). Recompose from scratch.
+      nextImages = [...keep, ...uploadedUrls];
+    } else {
+      // No gallery edits in this request — leave existing images alone.
+      nextImages = Array.isArray(product.images) ? product.images : [];
+    }
 
-    // Update only provided fields
+    if (nextImages.length === 0) {
+      return res
+        .status(400)
+        .json({ message: 'A product needs at least one image' });
+    }
+
+    // Optional: explicit primary chosen by the admin (must already be in the
+    // resulting gallery). Falls back to images[0].
+    let primary = product.image;
+    if (typeof req.body.primaryImage === 'string' && req.body.primaryImage.length > 0) {
+      if (nextImages.includes(req.body.primaryImage)) {
+        primary = req.body.primaryImage;
+      } else {
+        return res.status(400).json({
+          message: 'primaryImage must be one of the gallery images',
+        });
+      }
+    } else if (!nextImages.includes(primary)) {
+      // Current primary was just removed; promote the first remaining image.
+      primary = nextImages[0];
+    }
+
+    const {
+      name,
+      price,
+      category,
+      description,
+      countInStock,
+      originalPrice,
+      tag,
+      id,
+      rating,
+      reviews,
+      reviewsCount,
+      concern,
+      ingredients,
+      usage,
+      benefits,
+    } = req.body;
+
     if (name) product.name = name;
     if (price) product.price = parseFloat(price);
     if (category) product.category = category;
@@ -265,7 +404,8 @@ const updateProduct = async (req, res) => {
     if (usage) product.usage = usage;
     if (benefits) product.benefits = Array.isArray(benefits) ? benefits : [];
 
-    product.image = imageUrl;
+    product.images = nextImages;
+    product.image = primary;
 
     const updatedProduct = await product.save();
 
@@ -281,7 +421,13 @@ const updateProduct = async (req, res) => {
     res.json(updatedProduct);
   } catch (error) {
     console.error('Update product error:', error);
-    res.status(500).json({ message: 'Server error while updating product', error: error.message });
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ message: error.message });
+    }
+    res.status(500).json({
+      message: 'Server error while updating product',
+      error: error.message,
+    });
   }
 };
 
@@ -319,5 +465,5 @@ module.exports = {
   getProductById,
   createProduct,
   updateProduct,
-  deleteProduct
+  deleteProduct,
 };

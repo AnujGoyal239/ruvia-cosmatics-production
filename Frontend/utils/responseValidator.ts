@@ -33,7 +33,14 @@ export const validateResponse = <T>(
     };
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const errorMessages = error.errors
+      // Zod v4 renamed `error.errors` to `error.issues`. The shape of each
+      // issue is unchanged (`path`, `message`, etc.), so we just point at
+      // the new field. Falling back to `error.errors` keeps things working
+      // if a transitive dep is still on Zod v3.
+      const issues = (error as { issues?: unknown[]; errors?: unknown[] }).issues
+        ?? (error as { errors?: unknown[] }).errors
+        ?? [];
+      const errorMessages = (issues as Array<{ path: Array<string | number>; message: string }>)
         .map((err) => `${err.path.join('.')}: ${err.message}`)
         .join('; ');
 
